@@ -22,25 +22,42 @@ class IPPOTrainer:
         agent_kwargs: Optional[dict] = None,
         update_interval: int = 128,
         log_path: Optional[str] = None,
+        agent_type: str = "ppo",  # "ppo" | "hybrid"
+        llm_kwargs: Optional[dict] = None,
     ):
         self.nation_ids = nation_ids
         env_kwargs = env_kwargs or {}
         agent_kwargs = agent_kwargs or {}
+        llm_kwargs = llm_kwargs or {}
 
         self.env = GeopoliticalEnv(nation_ids=nation_ids, **env_kwargs)
         obs_builder = ObservationBuilder(nation_ids)
         obs_dim = obs_builder.obs_dim
 
         config = PPOConfig(**agent_kwargs.get("ppo_config", {}))
-        self.agents: dict[str, IPPOAgent] = {
-            nid: IPPOAgent(
-                nation_id=nid,
-                obs_dim=obs_dim,
-                n_nations=len(nation_ids),
-                config=config,
-            )
-            for nid in nation_ids
-        }
+
+        if agent_type == "hybrid":
+            from agents.hybrid_agent import HybridAgent
+            self.agents: dict[str, IPPOAgent] = {
+                nid: HybridAgent(
+                    nation_id=nid,
+                    obs_dim=obs_dim,
+                    n_nations=len(nation_ids),
+                    config=config,
+                    **llm_kwargs,
+                )
+                for nid in nation_ids
+            }
+        else:
+            self.agents = {
+                nid: IPPOAgent(
+                    nation_id=nid,
+                    obs_dim=obs_dim,
+                    n_nations=len(nation_ids),
+                    config=config,
+                )
+                for nid in nation_ids
+            }
 
         self.logger = SimulationLogger(log_path) if log_path else None
         self.runner = SimulationRunner(

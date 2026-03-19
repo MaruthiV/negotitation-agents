@@ -19,6 +19,7 @@ export interface NationData {
   alive: boolean
   age: number
   relationships: Record<string, RelationshipData>
+  reasoning?: string
 }
 
 export interface WorldState {

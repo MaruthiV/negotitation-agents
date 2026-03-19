@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 
 from world.geopolitical_env import GeopoliticalEnv
 from agents.ppo_agent import IPPOAgent, PPOConfig
-from world.observation_space import ObservationBuilder
+from world.observation_space import ObservationBuilder, NaturalLanguageObsBuilder
 from analysis.logger import SimulationLogger
+
+if TYPE_CHECKING:
+    from agents.hybrid_agent import HybridAgent
+
+
+def _is_hybrid(agent: IPPOAgent) -> bool:
+    """Check without importing HybridAgent at module level (avoids circular deps)."""
+    return hasattr(agent, "last_reasoning") and hasattr(agent, "_nl_obs_builder")
 
 
 class SimulationRunner:
@@ -33,6 +41,7 @@ class SimulationRunner:
         self._last_logprobs: dict[str, float] = {}
         self._last_values: dict[str, float] = {}
         self._last_obs: dict[str, np.ndarray] = {}
+        self._nl_obs_builder = NaturalLanguageObsBuilder()
 
     def run_episode(self) -> dict[str, float]:
         """Run one full episode, return episode stats."""
@@ -54,6 +63,11 @@ class SimulationRunner:
                 # Random action fallback
                 action = self.env.action_space(agent_id).sample()
                 log_prob, value = 0.0, 0.0
+            elif _is_hybrid(agent):
+                obs_text = self._nl_obs_builder.build_text(
+                    agent_id, self.env._nations, self.env._events, self.env._step_count
+                )
+                action, log_prob, value = agent.act(obs, obs_text=obs_text)  # type: ignore[call-arg]
             else:
                 action, log_prob, value = agent.act(obs)
 
@@ -123,16 +137,29 @@ class SimulationRunner:
 
         obs = self.env.observe(agent_id)
         agent = self.agents.get(agent_id)
-        if agent:
-            action, log_prob, value = agent.act(obs)
-        else:
+        if agent is None:
             action = self.env.action_space(agent_id).sample()
             log_prob, value = 0.0, 0.0
+        elif _is_hybrid(agent):
+            obs_text = self._nl_obs_builder.build_text(
+                agent_id, self.env._nations, self.env._events, self.env._step_count
+            )
+            action, log_prob, value = agent.act(obs, obs_text=obs_text)  # type: ignore[call-arg]
+        else:
+            action, log_prob, value = agent.act(obs)
 
         prev_step = self.env._step_count
         self.env.step(action)
         new_step = self.env._step_count
 
         if new_step > prev_step:
-            return self.env.get_world_snapshot()
+            snapshot = self.env.get_world_snapshot()
+            self._inject_reasoning(snapshot)
+            return snapshot
         return None
+
+    def _inject_reasoning(self, snapshot: dict) -> None:
+        """Enrich a world snapshot dict with LLM reasoning from hybrid agents."""
+        for agent_id, agent in self.agents.items():
+            if _is_hybrid(agent) and agent_id in snapshot.get("nations", {}):
+                snapshot["nations"][agent_id]["reasoning"] = agent.last_reasoning  # type: ignore[attr-defined]

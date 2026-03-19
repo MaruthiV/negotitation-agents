@@ -24,6 +24,7 @@ class NationSnapshot(BaseModel):
     alive: bool
     age: int
     relationships: dict[str, RelationshipSnapshot]
+    reasoning: Optional[str] = None  # LLM strategic reasoning (HybridAgent only)
 
 
 class WorldStateSnapshot(BaseModel):

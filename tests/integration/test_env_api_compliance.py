@@ -9,12 +9,13 @@ from world.geopolitical_env import GeopoliticalEnv
 
 
 def make_env(**kwargs) -> GeopoliticalEnv:
-    return GeopoliticalEnv(
+    defaults = dict(
         nation_ids=["alpha", "beta", "gamma"],
         max_steps=50,
         seed=42,
-        **kwargs,
     )
+    defaults.update(kwargs)
+    return GeopoliticalEnv(**defaults)
 
 
 def test_env_reset():

@@ -1,69 +1,86 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useSimulationStore } from '../store/simulationStore'
 
 const PRESET_SHOCKS = [
-  { label: '🦠 Pandemic', type: 'pandemic', magnitude: 0.7 },
-  { label: '💰 Financial Crisis', type: 'financial_crisis', magnitude: 0.6 },
-  { label: '⚡ Tech Breakthrough', type: 'tech_breakthrough', magnitude: 0.8 },
-  { label: '🌋 Natural Disaster', type: 'natural_disaster', magnitude: 0.6 },
-  { label: '🛢 Resource Discovery', type: 'resource_discovery', magnitude: 0.7 },
+  { label: 'Pandemic',           type: 'PANDEMIC',            magnitude: 0.7 },
+  { label: 'Financial Crisis',   type: 'FINANCIAL_CRISIS',    magnitude: 0.6 },
+  { label: 'Tech Breakthrough',  type: 'TECH_BREAKTHROUGH',   magnitude: 0.8 },
+  { label: 'Natural Disaster',   type: 'NATURAL_DISASTER',    magnitude: 0.6 },
+  { label: 'Resource Discovery', type: 'RESOURCE_DISCOVERY',  magnitude: 0.7 },
 ]
+
+function dispatchShock(shockType: string, nationId: string, magnitude: number) {
+  window.dispatchEvent(new CustomEvent('sim-command', {
+    detail: {
+      command: 'inject_shock',
+      payload: { shock_type: shockType, nation_id: nationId, magnitude, duration_steps: 15 },
+    },
+  }))
+}
 
 export const ScenarioInjector: React.FC = () => {
   const { worldState } = useSimulationStore()
-  const [selectedNation, setSelectedNation] = useState<string>('')
-  const [customText, setCustomText] = useState('')
-  const [lastInjected, setLastInjected] = useState<string | null>(null)
+  const [target, setTarget]       = useState<string>('')
+  const [text, setText]           = useState('')
+  const [feedback, setFeedback]   = useState<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const nationIds = Object.keys(worldState?.nations ?? {})
 
   useEffect(() => {
-    if (nationIds.length > 0 && !selectedNation) {
-      setSelectedNation(nationIds[0])
-    }
+    if (nationIds.length > 0 && !target) setTarget(nationIds[0])
   }, [nationIds.join(',')])
 
-  const injectShock = (shockType: string, magnitude: number) => {
-    if (!selectedNation) return
-    const cmd = {
-      command: 'inject_shock',
-      payload: {
-        shock_type: shockType,
-        nation_id: selectedNation,
-        magnitude,
-        duration_steps: 15,
-      },
-    }
-    window.dispatchEvent(new CustomEvent('sim-command', { detail: cmd }))
-    setLastInjected(`${shockType} → ${selectedNation}`)
-    setTimeout(() => setLastInjected(null), 3000)
+  const flash = (msg: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setFeedback(msg)
+    timerRef.current = setTimeout(() => setFeedback(null), 2500)
   }
 
-  const handleCustomSubmit = () => {
-    const lower = customText.toLowerCase()
-    const matched = PRESET_SHOCKS.find((s) => lower.includes(s.type.replace('_', ' ')))
+  const inject = (shockType: string, magnitude: number) => {
+    if (!target) return
+    dispatchShock(shockType, target, magnitude)
+    flash(`${shockType.replace(/_/g, ' ')} → ${target}`)
+  }
+
+  const handleText = () => {
+    const lower = text.toLowerCase().replace(/\s+/g, '_')
+    const matched = PRESET_SHOCKS.find((s) =>
+      lower.includes(s.type.toLowerCase()) ||
+      s.type.toLowerCase().includes(lower)
+    )
     if (matched) {
-      injectShock(matched.type, matched.magnitude)
+      inject(matched.type, matched.magnitude)
     } else {
-      // Default: financial crisis for unknown text
-      injectShock('financial_crisis', 0.5)
+      inject('FINANCIAL_CRISIS', 0.5)
     }
-    setCustomText('')
+    setText('')
   }
 
   return (
     <div>
-      <h4 style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>Scenario Injector</h4>
+      {/* Header */}
+      <div style={{ marginBottom: 10 }}>
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 12,
+          letterSpacing: '0.14em',
+          color: 'var(--text-secondary)',
+          fontWeight: 400,
+        }}>
+          INJECT SCENARIO
+        </span>
+      </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-        <label style={{ fontSize: 11, color: '#888' }}>Target:</label>
+      {/* Target selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 8, color: 'var(--text-secondary)', letterSpacing: '0.1em' }}>
+          TARGET
+        </span>
         <select
-          value={selectedNation}
-          onChange={(e) => setSelectedNation(e.target.value)}
-          style={{
-            background: '#2a2d3a', color: '#ddd', border: '1px solid #444',
-            borderRadius: 4, padding: '2px 6px', fontSize: 12,
-          }}
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          style={{ flex: 1, textTransform: 'capitalize' }}
         >
           {nationIds.map((nid) => (
             <option key={nid} value={nid}>{nid}</option>
@@ -71,19 +88,31 @@ export const ScenarioInjector: React.FC = () => {
         </select>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+      {/* Preset buttons */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
         {PRESET_SHOCKS.map((shock) => (
           <button
             key={shock.type}
-            onClick={() => injectShock(shock.type, shock.magnitude)}
+            onClick={() => inject(shock.type, shock.magnitude)}
             style={{
-              background: '#2a2d3a',
-              border: '1px solid #444',
-              color: '#ddd',
+              background: 'none',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
               padding: '4px 8px',
-              borderRadius: 4,
               cursor: 'pointer',
-              fontSize: 11,
+              fontSize: 9,
+              letterSpacing: '0.06em',
+              borderRadius: 2,
+              transition: 'all 0.15s ease',
+              fontFamily: 'var(--font-mono)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--accent)'
+              e.currentTarget.style.color = 'var(--accent)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--border)'
+              e.currentTarget.style.color = 'var(--text-secondary)'
             }}
           >
             {shock.label}
@@ -91,31 +120,56 @@ export const ScenarioInjector: React.FC = () => {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
+      {/* Custom text input */}
+      <div style={{ display: 'flex', gap: 4 }}>
         <input
-          value={customText}
-          onChange={(e) => setCustomText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCustomSubmit()}
-          placeholder="Type scenario (e.g. 'pandemic')"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleText()}
+          placeholder="type a scenario…"
           style={{
-            flex: 1, background: '#2a2d3a', border: '1px solid #444',
-            color: '#ddd', padding: '4px 8px', borderRadius: 4, fontSize: 11,
+            flex: 1,
+            background: 'var(--surface-elevated)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
+            padding: '5px 8px',
+            borderRadius: 2,
+            outline: 'none',
           }}
+          onFocus={(e) => (e.target.style.borderColor = 'var(--accent)')}
+          onBlur={(e) => (e.target.style.borderColor = 'var(--border)')}
         />
         <button
-          onClick={handleCustomSubmit}
+          onClick={handleText}
           style={{
-            background: '#3498db', border: 'none', color: '#fff',
-            padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11,
+            background: 'var(--accent-dim)',
+            border: '1px solid var(--accent)',
+            color: 'var(--accent)',
+            padding: '5px 12px',
+            cursor: 'pointer',
+            fontSize: 9,
+            letterSpacing: '0.08em',
+            borderRadius: 2,
+            transition: 'background 0.15s ease',
+            fontFamily: 'var(--font-mono)',
           }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-mid)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--accent-dim)')}
         >
-          Inject
+          INJECT
         </button>
       </div>
 
-      {lastInjected && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#f39c12' }}>
-          ⚡ Injected: {lastInjected}
+      {/* Feedback */}
+      {feedback && (
+        <div className="fade-up" style={{
+          marginTop: 8,
+          fontSize: 9,
+          color: 'var(--accent)',
+          letterSpacing: '0.06em',
+          fontFamily: 'var(--font-mono)',
+        }}>
+          ⚡ {feedback}
         </div>
       )}
     </div>

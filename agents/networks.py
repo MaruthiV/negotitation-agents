@@ -96,6 +96,28 @@ class ActorNetwork(nn.Module):
         return log_prob, entropy
 
 
+class HybridActorNetwork(ActorNetwork):
+    """
+    ActorNetwork variant for Hybrid LLM + RL agents.
+
+    The input observation is the concatenation of the raw observation vector
+    and a strategic embedding (one-hot over N strategic modes).  All heads
+    (Dirichlet budget + Categorical diplomatic) are identical to ActorNetwork;
+    only the input dimension differs.
+
+    Usage::
+
+        actor = HybridActorNetwork(
+            obs_dim=raw_obs_dim + N_STRATEGIC_MODES,
+            n_budget_channels=...,
+            n_targets=...,
+            n_diplomatic_options=...,
+        )
+    """
+    # No structural changes — the wider obs_dim is passed at construction time.
+    pass
+
+
 class CriticNetwork(nn.Module):
     """Value function estimator for IPPO (uses only own observation)."""
 

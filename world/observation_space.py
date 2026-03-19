@@ -116,3 +116,69 @@ class ObservationBuilder:
         ]
         vec += [0.0] * (15 - len(vec))
         return vec[:15]
+
+
+class NaturalLanguageObsBuilder:
+    """
+    Converts NationState + world context into a human-readable text briefing
+    for consumption by the LLM strategist.
+    """
+
+    def build_text(
+        self,
+        observer_id: str,
+        nations: dict[str, NationState],
+        recent_events: list[dict] | None = None,
+        step: int = 0,
+    ) -> str:
+        own = nations.get(observer_id)
+        if own is None:
+            return f"No data available for {observer_id}."
+
+        lines: list[str] = [
+            f"## Strategic Briefing — {observer_id.capitalize()} (Step {step})",
+            f"**Archetype**: {own.archetype}",
+            "",
+            "### Own Status",
+            f"- GDP: {own.gdp:.3f}",
+            f"- Military Strength: {own.military_strength * 100:.0f}%",
+            f"- Internal Stability: {own.internal_stability * 100:.0f}%"
+            + (" ⚠ CRISIS" if own.internal_stability < 0.2 else ""),
+            f"- Territory: {own.territory * 100:.0f}%",
+            f"- Tech Level: {own.tech_level * 100:.0f}%",
+            f"- Military Spending: {own.military_spending_pct * 100:.1f}% of GDP",
+            "- Resources: "
+            + ", ".join(
+                f"{k.capitalize()} {v * 100:.0f}%"
+                for k, v in sorted(own.resources.items())
+            ),
+            "",
+            "### Relationships",
+        ]
+
+        for other_id, rel in own.relationships.items():
+            other = nations.get(other_id)
+            status_tags: list[str] = []
+            if rel.hostility > 0.5:
+                status_tags.append("HOSTILE")
+            if rel.alliance_strength > 0.4:
+                status_tags.append("ALLIED")
+            if rel.trade_volume > 0.4:
+                status_tags.append("KEY TRADE PARTNER")
+            if other and not other.alive:
+                status_tags.append("ELIMINATED")
+            tag_str = f" ({', '.join(status_tags)})" if status_tags else ""
+            lines.append(
+                f"- **{other_id.capitalize()}**: Trade={rel.trade_volume:.2f}, "
+                f"Alliance={rel.alliance_strength:+.2f}, Hostility={rel.hostility:.2f}, "
+                f"Grievance={rel.grievance:.2f}{tag_str}"
+            )
+
+        if recent_events:
+            lines += ["", "### Recent Events"]
+            for ev in recent_events[-5:]:
+                ev_type = ev.get("type", "UNKNOWN")
+                detail_parts = [f"{k}={v}" for k, v in ev.items() if k != "type"]
+                lines.append(f"- {ev_type}" + (f": {', '.join(detail_parts)}" if detail_parts else ""))
+
+        return "\n".join(lines)

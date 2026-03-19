@@ -7,7 +7,7 @@ from typing import Any, Optional
 import numpy as np
 import gymnasium
 from pettingzoo import AECEnv
-from pettingzoo.utils import agent_selector
+from pettingzoo.utils import AgentSelector
 
 from world.nation_state import NationState, RelationshipVector, ARCHETYPES
 from world.action_space import make_action_space, ActionEncoder, DIPLOMATIC_ACTIONS
@@ -108,7 +108,7 @@ class GeopoliticalEnv(AECEnv):
         self._shock_gen = ExogenousShockGenerator(rng=self._rng) if enable_shocks else None
 
         # AEC state
-        self._agent_selector = agent_selector(self.possible_agents)
+        self._agent_selector = AgentSelector(self.possible_agents)
         self._nations: dict[str, NationState] = {}
         self._prev_nations: dict[str, NationState] = {}
         self._pending_actions: dict[str, dict] = {}
@@ -148,7 +148,7 @@ class GeopoliticalEnv(AECEnv):
         if self._shock_gen:
             self._shock_gen.active_shocks.clear()
 
-        self._agent_selector.reinit(self.agents)
+        self._agent_selector = AgentSelector(self.agents)
         self.agent_selection = self._agent_selector.next()
 
         self.rewards = {a: 0.0 for a in self.agents}
@@ -165,17 +165,38 @@ class GeopoliticalEnv(AECEnv):
         return self._obs_builder.build(agent, self._nations, self._rng)
 
     def step(self, action: dict) -> None:
-        if self.terminations[self.agent_selection] or self.truncations[self.agent_selection]:
-            self._was_dead_step(action)
+        # Handle dead/done agents by removing them cleanly
+        if self.terminations.get(self.agent_selection) or self.truncations.get(self.agent_selection):
+            agent = self.agent_selection
+            if action is not None:
+                raise ValueError("when an agent is dead, the only valid action is None")
+            # Remove dead agent from all dicts
+            self.agents.remove(agent)
+            del self.terminations[agent]
+            del self.truncations[agent]
+            del self.rewards[agent]
+            del self._cumulative_rewards[agent]
+            del self.infos[agent]
+            # Clear rewards dict (keys must match agents)
+            self._clear_rewards()
+            # Rebuild selector from remaining agents and advance
+            if self.agents:
+                self._agent_selector = AgentSelector(self.agents)
+                self.agent_selection = self._agent_selector.next()
             return
 
         current_agent = self.agent_selection
+
+        # Reset cumulative reward for current agent (consumed by last())
+        self._cumulative_rewards[current_agent] = 0
+        self._clear_rewards()
+
         self._pending_actions[current_agent] = action
 
         # Determine alive agents that still need to act this round
         # World step fires when all alive+active agents have submitted an action
         active_agents = [
-            a for a in self.possible_agents
+            a for a in self.agents
             if not self.terminations.get(a, False) and not self.truncations.get(a, False)
         ]
         all_acted = all(a in self._pending_actions for a in active_agents)
@@ -183,22 +204,19 @@ class GeopoliticalEnv(AECEnv):
         if all_acted:
             self._apply_world_step()
             self._step_count += 1
-            # Update observations and check termination
-            for a in self.possible_agents:
+            # Update observations and check termination/truncation
+            for a in list(self.agents):
                 self.observations[a] = self._obs_builder.build(a, self._nations, self._rng)
                 if not self._nations[a].alive:
                     self.terminations[a] = True
                 if self._step_count >= self.max_steps:
                     self.truncations[a] = True
-            # Update agents list (remove terminated/truncated)
-            self.agents = [
-                a for a in self.agents
-                if not self.terminations.get(a, False) and not self.truncations.get(a, False)
-            ]
 
+        # Accumulate rewards for all current agents
         self._accumulate_rewards()
+
+        # Advance to next agent
         self.agent_selection = self._agent_selector.next()
-        self._clear_rewards()
 
     def action_space(self, agent: str) -> gymnasium.spaces.Dict:
         return self._action_spaces[agent]
