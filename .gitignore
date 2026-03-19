@@ -36,3 +36,6 @@ Thumbs.db
 # dotenv
 .env
 .env.local
+
+# Claude
+CLAUDE.md
