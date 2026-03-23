@@ -7,7 +7,7 @@ from typing import Any, Optional
 import numpy as np
 import gymnasium
 from pettingzoo import AECEnv
-from pettingzoo.utils import AgentSelector
+from pettingzoo.utils.agent_selector import agent_selector as AgentSelector
 
 from world.nation_state import NationState, RelationshipVector, ARCHETYPES
 from world.action_space import make_action_space, ActionEncoder, DIPLOMATIC_ACTIONS
